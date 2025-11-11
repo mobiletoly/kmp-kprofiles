@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_cta">Brand Bravo CTA — purple brings contrast.</string>
+    <string name="profile_hint">Stack resolved to brand Bravo. Try swapping brand order.</string>
+</resources>

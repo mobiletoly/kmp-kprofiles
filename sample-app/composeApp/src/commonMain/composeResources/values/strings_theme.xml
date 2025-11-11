@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_title">KMP Profiles sample</string>
+    <string name="profile_message">Shared resources active — override me by layering themes and brands.</string>
+</resources>

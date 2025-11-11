@@ -1,0 +1,3 @@
+apiBaseUrl: "https://green.api.example.com"
+featureX: true
+retryCount: 4

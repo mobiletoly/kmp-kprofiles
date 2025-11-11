@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_cta">Brand Alpha CTA — celebrate the orange accent.</string>
+    <string name="profile_hint">Stack resolved to brand Alpha. Reorder profiles to see changes.</string>
+</resources>

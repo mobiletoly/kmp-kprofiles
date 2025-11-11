@@ -1,0 +1,3 @@
+apiBaseUrl: "https://api.ios.example.com"
+featureX: false
+testValue: 999

@@ -1,0 +1,5 @@
+apiBaseUrl: "https://api.example.com"
+retryCount: 3
+featureX: false
+timeoutSec: 2.5
+testValue: 1
