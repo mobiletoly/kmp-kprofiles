@@ -155,6 +155,7 @@ overlays/profile/brand-alpha/composeResources/values/strings.xml
 | `iosArm64` / `iosSimulatorArm64`  | `ios`           | `overlays/platform/ios/…`                                      |
 | `macosX64` / `desktop` JVM target | `jvm`           | `overlays/platform/jvm/…`                                      |
 | `jvmMain` (non-Android)           | `jvm`           | `overlays/platform/jvm/…`                                      |
+| `wasmJs`                          | `wasm`          | `overlays/platform/wasm/…`                                     |
 
 Notes:
 
