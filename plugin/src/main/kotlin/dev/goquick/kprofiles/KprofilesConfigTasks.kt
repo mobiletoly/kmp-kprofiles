@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025 Toly Pochkin
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package dev.goquick.kprofiles
 
 import com.fasterxml.jackson.core.JsonParser
@@ -179,7 +194,8 @@ abstract class KprofilesGenerateConfigTask @Inject constructor() : DefaultTask()
                 val propertyName = sanitizeIdentifier(key)
                 val analyzed = analyzeValue(value)
                 val keyword = if (preferConst && canBeConst(analyzed)) "const val" else "val"
-                append("    $keyword $propertyName: ${analyzed.kotlinType} = ${analyzed.literal}\n")
+                val typeSegment = if (analyzed.includeType) ": ${analyzed.kotlinType}" else ""
+                append("    $keyword $propertyName$typeSegment = ${analyzed.literal}\n")
             }
         }
         return """
@@ -200,7 +216,7 @@ abstract class KprofilesGenerateConfigTask @Inject constructor() : DefaultTask()
     }
 
     private fun analyzeValue(value: Any?): AnalyzedValue = when (value) {
-        is String -> AnalyzedValue("String", "\"${value.escapeForKotlin()}\"", ScalarKind.STRING, value)
+        is String -> analyzeStringValue(value)
         is Boolean -> AnalyzedValue("Boolean", value.toString(), ScalarKind.BOOLEAN, value)
         is Int -> AnalyzedValue("Int", value.toString(), ScalarKind.INT, value)
         is Long -> AnalyzedValue("Long", "${value}L", ScalarKind.LONG, value)
@@ -245,11 +261,69 @@ abstract class KprofilesGenerateConfigTask @Inject constructor() : DefaultTask()
         }
     }
 
+    private fun analyzeStringValue(raw: String): AnalyzedValue {
+        if (raw.startsWith(VAL_PREFIX)) {
+            val expression = raw.removePrefix(VAL_PREFIX).trimStart()
+            require(expression.isNotBlank()) {
+                "Kprofiles: '$VAL_PREFIX' requires a non-empty Kotlin expression."
+            }
+            return AnalyzedValue(
+                kotlinType = "",
+                literal = expression,
+                scalarKind = null,
+                numericValue = null,
+                includeType = false
+            )
+        }
+        parseEnvExpression(raw)?.let { return it }
+        parsePropertyExpression(raw)?.let { return it }
+        return AnalyzedValue("String", "\"${raw.escapeForKotlin()}\"", ScalarKind.STRING, raw)
+    }
+
+    private fun parseEnvExpression(raw: String): AnalyzedValue? {
+        val optional = raw.startsWith(ENV_OPTIONAL_PREFIX)
+        if (!optional && !raw.startsWith(ENV_PREFIX)) return null
+        val prefix = if (optional) ENV_OPTIONAL_PREFIX else ENV_PREFIX
+        val name = raw.removePrefix(prefix).trim()
+        require(name.isNotBlank()) {
+            "Kprofiles: '$prefix' requires an environment variable name."
+        }
+        val value = KprofilesEnv.get(name)
+        if (value == null) {
+            if (optional) {
+                return AnalyzedValue("String", "\"\"", ScalarKind.STRING, "")
+            } else {
+                error("Kprofiles: environment variable '$name' is not defined but was requested via '$ENV_PREFIX'.")
+            }
+        }
+        return AnalyzedValue("String", "\"${value.escapeForKotlin()}\"", ScalarKind.STRING, value)
+    }
+
+    private fun parsePropertyExpression(raw: String): AnalyzedValue? {
+        val optional = raw.startsWith(PROP_OPTIONAL_PREFIX)
+        if (!optional && !raw.startsWith(PROP_PREFIX)) return null
+        val prefix = if (optional) PROP_OPTIONAL_PREFIX else PROP_PREFIX
+        val name = raw.removePrefix(prefix).trim()
+        require(name.isNotBlank()) {
+            "Kprofiles: '$prefix' requires a Gradle property name."
+        }
+        val value = project.findProperty(name)?.toString()
+        if (value == null) {
+            if (optional) {
+                return AnalyzedValue("String", "\"\"", ScalarKind.STRING, "")
+            } else {
+                error("Kprofiles: Gradle property '$name' is not defined but was requested via '$PROP_PREFIX'.")
+            }
+        }
+        return AnalyzedValue("String", "\"${value.escapeForKotlin()}\"", ScalarKind.STRING, value)
+    }
+
     private data class AnalyzedValue(
         val kotlinType: String,
         val literal: String,
         val scalarKind: ScalarKind?,
-        val numericValue: Any?
+        val numericValue: Any?,
+        val includeType: Boolean = true
     )
 
     private enum class ScalarKind { STRING, BOOLEAN, INT, LONG, DOUBLE }
@@ -323,6 +397,20 @@ private fun buildPlatformDescriptor(family: String, buildType: String): String {
     val buildPart = if (buildType.isNotBlank()) "buildType=$buildType" else "buildType=none"
     return "$familyPart, $buildPart"
 }
+
+private const val VAL_PREFIX = "[=val]"
+private const val ENV_PREFIX = "[=env]"
+private const val ENV_OPTIONAL_PREFIX = "[=env?]"
+private const val PROP_PREFIX = "[=prop]"
+private const val PROP_OPTIONAL_PREFIX = "[=prop?]"
+
+internal object KprofilesEnv {
+    @Volatile
+    var resolver: (String) -> String? = { System.getenv(it) }
+
+    fun get(name: String): String? = resolver(name)
+}
+
 private val KOTLIN_KEYWORDS = setOf(
     "package", "as", "typealias", "class", "this", "super", "val", "var", "fun", "for",
     "null", "true", "false", "is", "in", "throw", "return", "break", "continue", "object",

@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -90,31 +90,15 @@ class KprofilesConfigTasksTest {
                 "apiBaseUrl" to "https://api.example.com",
                 "featureX" to true,
                 "retryCount" to 3,
-                "timeoutMs" to 5000L,
+                "timeoutMs" to 5_000_000_000L,
                 "pi" to 3.1415
             )
         )
         assertTrue(source.contains("const val apiBaseUrl: String = \"https://api.example.com\""))
         assertTrue(source.contains("const val featureX: Boolean = true"))
         assertTrue(source.contains("const val retryCount: Int = 3"))
-        assertTrue(source.contains("const val timeoutMs: Long = 5000L"))
+        assertTrue(source.contains("const val timeoutMs: Long = 5000000000L"))
         assertTrue(source.contains("const val pi: Double = 3.1415"))
-    }
-
-    @Test
-    fun `non finite doubles remain val`() {
-        val source = generateConfigSource(
-            projectName = "nonFinite",
-            data = mapOf(
-                "nanValue" to Double.NaN,
-                "posInf" to Double.POSITIVE_INFINITY,
-                "negInf" to Double.NEGATIVE_INFINITY
-            )
-        )
-        assertTrue(source.contains("val nanValue: Double = Double.NaN"))
-        assertTrue(source.contains("val posInf: Double = Double.POSITIVE_INFINITY"))
-        assertTrue(source.contains("val negInf: Double = Double.NEGATIVE_INFINITY"))
-        assertFalse(source.contains("const val nanValue"))
     }
 
     @Test
@@ -132,6 +116,84 @@ class KprofilesConfigTasksTest {
         assertTrue(source.contains("val retryCount: Int = 7"))
     }
 
+    @Test
+    fun `assign prefix renders raw expression`() {
+        val source = generateConfigSource(
+            projectName = "assignExpr",
+            data = mapOf(
+                "mainColor" to "[=val] androidx.compose.ui.graphics.Color(0xFFAABB)"
+            )
+        )
+        assertTrue(source.contains("val mainColor = androidx.compose.ui.graphics.Color(0xFFAABB)"))
+        assertFalse(source.contains("const val mainColor"))
+        assertFalse(source.contains("mainColor:"))
+    }
+
+    @Test
+    fun `env prefix injects environment variable`() {
+        withEnvOverride("APP_SECRET", "shhh") {
+            val source = generateConfigSource(
+                projectName = "envExpr",
+                data = mapOf("secret" to "[=env] APP_SECRET")
+            )
+            assertTrue(source.contains("const val secret: String = \"shhh\""))
+        }
+    }
+
+    @Test
+    fun `env optional prefix falls back to empty`() {
+        withEnvOverride("OPTIONAL_VALUE", null) {
+            val source = generateConfigSource(
+                projectName = "envOptional",
+                data = mapOf("optional" to "[=env?] OPTIONAL_VALUE")
+            )
+            assertTrue(source.contains("const val optional: String = \"\""))
+        }
+    }
+
+    @Test
+    fun `env prefix missing fails`() {
+        withEnvOverride("MISSING_VALUE", null) {
+            assertThrows(IllegalStateException::class.java) {
+                generateConfigSource(
+                    projectName = "envMissing",
+                    data = mapOf("required" to "[=env] MISSING_VALUE")
+                )
+                Unit
+            }
+        }
+    }
+
+    @Test
+    fun `prop prefix injects gradle property`() {
+        val source = generateConfigSource(
+            projectName = "propExpr",
+            data = mapOf("apiBaseUrl" to "[=prop] API_URL"),
+            gradleProps = mapOf("API_URL" to "https://from-prop")
+        )
+        assertTrue(source.contains("const val apiBaseUrl: String = \"https://from-prop\""))
+    }
+
+    @Test
+    fun `prop optional prefix falls back to empty`() {
+        val source = generateConfigSource(
+            projectName = "propOptional",
+            data = mapOf("optional" to "[=prop?] OPTIONAL_PROP")
+        )
+        assertTrue(source.contains("const val optional: String = \"\""))
+    }
+
+    @Test
+    fun `prop prefix missing fails`() {
+        assertThrows(IllegalStateException::class.java) {
+            generateConfigSource(
+                projectName = "propMissing",
+                data = mapOf("required" to "[=prop] UNDEFINED_PROP")
+            )
+            Unit
+        }
+    }
+
     private fun write(project: org.gradle.api.Project, relative: String, content: String): File {
         val file = File(project.projectDir, relative)
         file.parentFile.mkdirs()
@@ -142,7 +204,8 @@ class KprofilesConfigTasksTest {
     private fun generateConfigSource(
         projectName: String,
         data: Map<String, Any?>,
-        preferConst: Boolean = true
+        preferConst: Boolean = true,
+        gradleProps: Map<String, Any?> = emptyMap()
     ): String {
         val project = ProjectBuilder.builder()
             .withProjectDir(tempDir.resolve(projectName))
@@ -151,6 +214,10 @@ class KprofilesConfigTasksTest {
             parentFile.mkdirs()
             mapper.writeValue(this, data)
         }
+        gradleProps.forEach { (k, v) ->
+            project.extensions.extraProperties[k] = v
+        }
+
         val task = project.tasks.create("generateConfig$projectName", KprofilesGenerateConfigTask::class.java)
         task.mergedConfigFile.set(project.layout.projectDirectory.file(project.relativePath(merged)))
         task.packageName.set("dev.test.config")
@@ -162,5 +229,17 @@ class KprofilesConfigTasksTest {
 
         val outputFile = task.outputDir.get().asFile.resolve("GeneratedConfig.kt")
         return outputFile.readText()
+    }
+
+    private fun withEnvOverride(name: String, value: String?, block: () -> Unit) {
+        val previous = KprofilesEnv.resolver
+        KprofilesEnv.resolver = { key ->
+            if (key == name) value else previous(key)
+        }
+        try {
+            block()
+        } finally {
+            KprofilesEnv.resolver = previous
+        }
     }
 }

@@ -1,3 +1,4 @@
 apiBaseUrl: "https://green.api.example.com"
 featureX: true
 retryCount: 4
+mainColor: "[=val] androidx.compose.ui.graphics.Color(0xFF2E7D32)"

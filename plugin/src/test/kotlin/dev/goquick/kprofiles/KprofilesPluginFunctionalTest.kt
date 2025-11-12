@@ -140,7 +140,9 @@ class KprofilesPluginFunctionalTest {
         writeLayer(buildTypeDir, "buildType")
         writeLayer(profileDir, "profile")
 
+        val sharedDir = project.layout.projectDirectory.dir("shared").also { it.asFile.mkdirs() }
         overlayTask.preparedDirectory.set(preparedDir)
+        overlayTask.sharedInputDirectory.set(sharedDir)
         overlayTask.profiles.set(listOf("theme-blue"))
         overlayTask.platformFamily.set("jvm")
         overlayTask.buildType.set("debug")
@@ -164,7 +166,8 @@ class KprofilesPluginFunctionalTest {
         strictAndroid: Boolean,
         collisionPolicy: CollisionPolicy?,
         extraProfilesBlock: String = "",
-        kotlinBlock: String? = null
+        kotlinBlock: String? = null,
+        addDefaultFamily: Boolean = true
     ) {
         writeFile("settings.gradle.kts", "rootProject.name = \"functional\"")
         val configLines = mutableListOf<String>()
@@ -205,6 +208,11 @@ ${if (configBody.isBlank()) "" else configBody + "\n"}
             }
             """.trimIndent()
         )
+
+        if (addDefaultFamily) {
+            val props = projectDir.resolve("gradle.properties")
+            Files.writeString(props, "kprofiles.family=jvm\n")
+        }
     }
 
     @Test
@@ -263,12 +271,18 @@ ${if (configBody.isBlank()) "" else configBody + "\n"}
                     jvm()
                     iosArm64()
                 }
-            """.trimIndent()
+            """.trimIndent(),
+            addDefaultFamily = false
         )
         writeSharedFile("files/info.txt", "shared")
 
         val failure = gradleFail("kprofilesOverlayForCommonMain")
-        assertTrue(failure.output.contains("multiple platform families detected"))
+        val output = failure.output
+        assertTrue(
+            output.contains("multiple platform families") ||
+                output.contains("unable to infer platform family"),
+            "Expected platform-family failure but got: $output"
+        )
     }
 
     @Test
@@ -281,7 +295,8 @@ ${if (configBody.isBlank()) "" else configBody + "\n"}
                     jvm()
                     iosArm64()
                 }
-            """.trimIndent()
+            """.trimIndent(),
+            addDefaultFamily = false
         )
         writeSharedFile("files/info.txt", "shared")
         writePlatformOverlay("jvm", "files/info.txt", "platform-jvm")

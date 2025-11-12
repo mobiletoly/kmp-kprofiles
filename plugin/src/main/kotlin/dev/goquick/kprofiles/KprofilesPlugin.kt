@@ -1,3 +1,18 @@
+/*
+ * Copyright 2025 Toly Pochkin
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package dev.goquick.kprofiles
 
 import org.gradle.api.NamedDomainObjectContainer
@@ -31,8 +46,10 @@ class KprofilesPlugin : Plugin<Project> {
             ?: error("Kprofiles requires the Kotlin Multiplatform plugin")
 
         val profileResolver = ProfileResolver(project, extension)
-        val profileSelection = profileResolver.resolveProfiles()
-        val profileStack = profileSelection.profiles
+        val profileSelectionProvider = project.providers.provider {
+            profileResolver.resolveProfiles()
+        }
+        val profileStackProvider = profileSelectionProvider.map { it.profiles }
 
         extension.generatedConfig.packageName.convention(project.provider {
             val group = project.group.toString().takeIf { it.isNotBlank() }
@@ -55,21 +72,23 @@ class KprofilesPlugin : Plugin<Project> {
         validatePattern(platformPattern, "%FAMILY%", "kprofiles.platformDirPattern")
         validatePattern(buildTypePattern, "%BUILD_TYPE%", "kprofiles.buildTypeDirPattern")
 
-        when (profileSelection.source) {
-            ProfileResolver.ProfileSource.DEFAULT -> project.logger.info(
-                "Kprofiles: using defaultProfiles=${profileStack}. Override via -Pkprofiles.profiles or KPROFILES_PROFILES."
-            )
-            ProfileResolver.ProfileSource.NONE -> project.logger.info(
-                "Kprofiles: no active profiles supplied. Using shared resources only."
-            )
-            else -> Unit
+        project.afterEvaluate {
+            val profileSelection = profileSelectionProvider.get()
+            when (profileSelection.source) {
+                ProfileResolver.ProfileSource.DEFAULT -> project.logger.info(
+                    "Kprofiles: using defaultProfiles=${profileSelection.profiles}. Override via -Pkprofiles.profiles or KPROFILES_PROFILES."
+                )
+                ProfileResolver.ProfileSource.NONE -> project.logger.info(
+                    "Kprofiles: no active profiles supplied. Using shared resources only."
+                )
+                else -> Unit
+            }
+            val stackDescription = buildList {
+                add("shared")
+                addAll(profileSelection.profiles)
+            }.joinToString(prefix = "[", postfix = "]")
+            project.logger.info("Kprofiles: active stack = $stackDescription")
         }
-
-        val stackDescription = buildList {
-            add("shared")
-            addAll(profileStack)
-        }.joinToString(prefix = "[", postfix = "]")
-        project.logger.info("Kprofiles: active stack = $stackDescription")
 
         val activeFamily = PlatformFamilies.resolveActiveFamily(project, kotlinExt)
         val activeBuildType = resolveActiveBuildType(project)
@@ -89,12 +108,13 @@ class KprofilesPlugin : Plugin<Project> {
         }
 
         val overlaySpecsProvider = project.providers.provider {
+            val selection = profileSelectionProvider.get()
             computeOverlaySpecs(
                 project = project,
                 ownerSourceSet = ownerSourceSet,
                 family = activeFamily,
                 buildType = activeBuildType,
-                profileStack = profileStack,
+                profileStack = selection.profiles,
                 profileDirPattern = profilePattern,
                 platformPattern = platformPattern,
                 buildTypePattern = buildTypePattern
@@ -107,7 +127,7 @@ class KprofilesPlugin : Plugin<Project> {
             task.dependsOn(prepareTask)
             task.preparedDirectory.set(preparedDir)
             task.sharedInputDirectory.set(prepareTask.flatMap { it.outputDirectory })
-            task.profiles.set(profileStack)
+            task.profiles.set(profileStackProvider)
             task.platformFamily.set(activeFamily)
             task.buildType.set(activeBuildType ?: "")
             task.allowedTopLevelDirs.set(extension.allowedTopLevelDirs)
@@ -125,7 +145,7 @@ class KprofilesPlugin : Plugin<Project> {
         registerDiagnostics(
             project = project,
             extension = extension,
-            profileSelection = profileSelection,
+            profileSelectionProvider = profileSelectionProvider,
             overlaySpecsProvider = overlaySpecsProvider,
             ownerSourceSet = ownerSourceSet,
             family = activeFamily,
@@ -138,7 +158,7 @@ class KprofilesPlugin : Plugin<Project> {
         val configGenerateTask = registerConfigGeneration(
             project = project,
             extension = extension,
-            profileSelection = profileSelection,
+            profileSelectionProvider = profileSelectionProvider,
             family = activeFamily,
             buildType = activeBuildType
         )
@@ -233,7 +253,7 @@ class KprofilesPlugin : Plugin<Project> {
     private fun registerConfigGeneration(
         project: Project,
         extension: KprofilesExtension,
-        profileSelection: ProfileResolver.ProfileSelection,
+        profileSelectionProvider: Provider<ProfileResolver.ProfileSelection>,
         family: String,
         buildType: String?
     ): TaskProvider<KprofilesGenerateConfigTask> {
@@ -244,11 +264,12 @@ class KprofilesPlugin : Plugin<Project> {
         val enabledProvider = extension.generatedConfig.enabled.orElse(project.provider { false })
 
         val configSpecsProvider = project.providers.provider {
+            val selection = profileSelectionProvider.get()
             computeConfigOverlaySpecs(
                 project = project,
                 family = family,
                 buildType = buildType,
-                profileSelection = profileSelection
+                profileSelection = selection
             )
         }
         val orderedPathsProvider = configSpecsProvider.map { specs ->
@@ -260,7 +281,7 @@ class KprofilesPlugin : Plugin<Project> {
         val mergeTask = project.tasks.register("kprofilesMergeConfigFor$cap", KprofilesMergeConfigTask::class.java) { task ->
             task.group = "kprofiles"
             task.description = "Merge profile-aware configuration for $targetSourceSet."
-            task.profileStack.set(profileSelection.profiles.joinToString(","))
+            task.profileStack.set(profileSelectionProvider.map { it.profiles.joinToString(",") })
             task.platformFamily.set(family)
             task.buildType.set(buildType ?: "")
             task.overlayLabels.set(configLabelsProvider)
@@ -300,8 +321,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.group = "kprofiles"
             task.description = "Print merged profile-aware configuration."
             task.dependsOn(mergeTask)
-            task.profileSource.set(profileSelection.source.name)
-            task.profileStack.set(profileSelection.profiles.joinToString(","))
+            task.profileSource.set(profileSelectionProvider.map { it.source.name })
+            task.profileStack.set(profileSelectionProvider.map { it.profiles.joinToString(",") })
             task.overlayLabels.set(configLabelsProvider)
             task.platformFamily.set(family)
             task.buildType.set(buildType ?: "")
@@ -345,7 +366,7 @@ class KprofilesPlugin : Plugin<Project> {
     private fun registerDiagnostics(
         project: Project,
         extension: KprofilesExtension,
-        profileSelection: ProfileResolver.ProfileSelection,
+        profileSelectionProvider: Provider<ProfileResolver.ProfileSelection>,
         overlaySpecsProvider: Provider<List<OverlaySpec>>,
         ownerSourceSet: String,
         family: String,
@@ -367,8 +388,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.description = "Print the effective profiles configuration."
             task.dependsOn(overlayTask)
             task.sharedDir.set(sharedDir)
-            task.profiles.set(profileSelection.profiles)
-            task.profileSource.set(profileSelection.source.name)
+            task.profiles.set(profileSelectionProvider.map { it.profiles })
+            task.profileSource.set(profileSelectionProvider.map { it.source.name })
             task.platformFamilies.set(platformFamiliesProvider)
             task.buildTypes.set(buildTypesProvider)
             task.overlayLabels.set(overlayLabelsProvider)
@@ -383,8 +404,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.description = "Verify profile resource structure."
             task.dependsOn(overlayTask)
             task.sourceSets.set(listOf(ownerSourceSet))
-            task.profiles.set(profileSelection.profiles)
-            task.profileSource.set(profileSelection.source.name)
+            task.profiles.set(profileSelectionProvider.map { it.profiles })
+            task.profileSource.set(profileSelectionProvider.map { it.source.name })
             task.platformFamilies.set(platformFamiliesProvider)
             task.buildTypes.set(buildTypesProvider)
             task.overlayLabels.set(overlayLabelsProvider)
@@ -402,8 +423,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.description = "Print diagnostics about prepared resources."
             task.dependsOn(overlayTask)
             task.sourceSets.set(listOf(ownerSourceSet))
-            task.profiles.set(profileSelection.profiles)
-            task.profileSource.set(profileSelection.source.name)
+            task.profiles.set(profileSelectionProvider.map { it.profiles })
+            task.profileSource.set(profileSelectionProvider.map { it.source.name })
             task.platformFamilies.set(platformFamiliesProvider)
             task.buildTypes.set(buildTypesProvider)
             task.overlayLabels.set(overlayLabelsProvider)
@@ -453,7 +474,7 @@ private fun computeOverlaySpecs(
         if (dir.asFile.exists()) {
             specs += OverlaySpec(ownerSourceSet, label, dir)
         } else {
-            project.logger.debug(
+            project.logger.info(
                 "Kprofiles: overlay '$label' not found at '$relativePath'. Proceeding without it."
             )
         }

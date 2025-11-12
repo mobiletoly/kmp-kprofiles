@@ -40,6 +40,7 @@ fun App() {
             val cta = stringResource(Res.string.profile_cta)
             val hint = stringResource(Res.string.profile_hint)
             val profileName = stringResource(Res.string.profile_name)
+            val accentColor = AppConfig.mainColor
             val featureStatus = if (AppConfig.featureX) "enabled" else "disabled"
             val platformLabel = stringResource(Res.string.platform_label)
             val buildTypeLabel = stringResource(Res.string.build_type_label)
@@ -60,7 +61,8 @@ fun App() {
                 Text(
                     text = profileName.uppercase(),
                     style = MaterialTheme.typography.labelSmall,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = accentColor
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -78,7 +80,8 @@ fun App() {
                 Text(
                     text = cta,
                     style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = accentColor
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
@@ -101,6 +104,12 @@ fun App() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Feature X: $featureStatus",
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Prop secret: ${AppConfig.propertySecret}",
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center
                 )

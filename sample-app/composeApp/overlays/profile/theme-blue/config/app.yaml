@@ -1,3 +1,4 @@
 apiBaseUrl: "https://blue.api.example.com"
 featureX: true
 timeoutSec: 1.5
+mainColor: "[=val] androidx.compose.ui.graphics.Color(0xFF0D47A1)"

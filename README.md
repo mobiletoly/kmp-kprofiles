@@ -1,12 +1,29 @@
 # Kprofiles
 
-Profile‑ and platform‑aware **Compose Multiplatform** resources for **Android, iOS, and Desktop**.  
+Profile‑ and platform‑aware **Compose Multiplatform** resources **and config** for **Android, iOS,
+and Desktop**.  
 Kprofiles prepares a single **merged resource tree** for Compose by layering your shared assets with
-optional overlays (platform family, build type, and one or more “profiles”) — **last wins**.
+optional overlays (platform family, build type, and one or more “profiles”) — **last wins**.  
+It can also generate **profile‑aware Kotlin config** from YAML overlays (often replacing BuildKonfig
+in your workflow).
 
 > **Important:** If a module targets multiple platform families (e.g., Android + iOS + Desktop),
 > build **one family per Gradle invocation** (e.g., `-Pkprofiles.family=ios`). Single‑family modules
 > don’t need this flag.
+
+---
+
+## Why this exists
+
+Compose Multiplatform stores shared resources in `src/<sourceSet>/composeResources` (e.g.,
+`src/commonMain/composeResources`).  
+When you need **variants** (brand, theme, customer, region), Android **flavors** only solve this for
+Android and don’t exist for `commonMain` or iOS/Desktop. Teams end up copying files or writing
+ad‑hoc Gradle tasks.
+
+**Kprofiles** gives you a small, predictable system: keep shared assets where they are, add overlays
+in well‑known folders, select overlays per build, and let the plugin hand Compose a single,
+conflict‑free tree.
 
 ---
 
@@ -15,11 +32,11 @@ optional overlays (platform family, build type, and one or more “profiles”) 
 - **Shared** — your normal resources under `src/<sourceSet>/composeResources` (e.g.,
   `src/commonMain/composeResources`).
 - **Platform family** — high‑level target: `android`, `ios`, or `jvm`. Auto‑detected, or pass
-  `-Pkprofiles.family=…` (or `KPROFILES_FAMILY`).
+  `-Pkprofiles.family=…` (or `KPROFILES_FAMILY` environment variable).
 - **Build type** — when known (`debug` / `release`) for Android variants and some Kotlin/Native
   compilations.
-- **Profiles** — your own layers such as `brand-alpha`, `theme-blue`. Select with
-  `-Pkprofiles.profiles=a,b` (or `KPROFILES_PROFILES`).
+- **Profiles** — your own layers such as `brand-alpha`, `theme-blue`, `dev`, `staging`. Select with
+  `-Pkprofiles.profiles=a,b` (or `KPROFILES_PROFILES` environment variable).
 
 **Merge order:** Shared → Platform → BuildType → Profiles (left→right). **Last wins** on
 conflicts.  
@@ -51,10 +68,10 @@ overlays/profile/theme-blue/composeResources/drawable/logo.png     # overrides
 
 ```bash
 # Profile via Gradle property (comma-separated)
-./gradlew :composeApp:build -Pkprofiles.profiles=theme-blue
+./gradlew :sample-app:composeApp:generateKprofiles -Pkprofiles.profiles=theme-blue
 
-# If your module targets multiple families, also pass the family:
-./gradlew :composeApp:build -Pkprofiles.family=jvm -Pkprofiles.profiles=theme-blue
+# If your module targets multiple families (jvm, ios, android, ...), also pass the family:
+./gradlew :sample-app:composeApp:generateKprofiles -Pkprofiles.family=jvm -Pkprofiles.profiles=theme-blue
 
 # Or use environment variables
 KPROFILES_PROFILES=theme-blue KPROFILES_FAMILY=jvm ./gradlew :composeApp:build
@@ -63,34 +80,17 @@ KPROFILES_PROFILES=theme-blue KPROFILES_FAMILY=jvm ./gradlew :composeApp:build
 That’s it — Compose now generates `Res.*` against the **merged** tree, so your overlayed `logo.png`
 is used.
 
----
-
-## Why this exists
-
-Compose Multiplatform stores shared resources in `src/<sourceSet>/composeResources` (e.g.,
-`src/commonMain/composeResources`).  
-When you need **variants** (brand, theme, customer, region), Android **flavors** only solve this for
-Android and don’t exist for `commonMain` or iOS/Desktop. Teams end up copying files or writing
-ad‑hoc Gradle tasks.
-
-**Kprofiles** gives you a small, predictable system: keep shared assets where they are, add overlays
-in well‑known folders, select overlays per build, and let the plugin hand Compose a single,
-conflict‑free tree.
-
 ### Profile stack precedence
 
-Kprofiles resolves the active stack once per build using this order:
+Kprofiles resolves the active profile stack once per build using this order:
 
 1. Gradle property `-Pkprofiles.profiles`
 2. Environment variable `KPROFILES_PROFILES`
 3. DSL fallback `kprofiles.defaultProfiles`
 4. No profiles (shared-only)
 
-When defaults are applied, the plugin logs a single INFO message showing the stack and how to
-override it. If nothing is set, it logs that shared resources only are being used.
-Platform/build-type overlays don't need extra configuration—the
-plugin derives them automatically from the target or compilation and applies them whenever the
-corresponding directories exist.
+When defaults are applied, the plugin logs one INFO message with the resolved stack and how to
+override it.
 
 ---
 
@@ -134,6 +134,15 @@ overlays/profile/theme-blue/composeResources/drawable/logo.png
 overlays/profile/brand-alpha/composeResources/values/strings.xml
 ```
 
+### How merging works (at a glance)
+
+1. Copy **shared** from `src/<sourceSet>/composeResources` (or your configured `sharedDir`).
+2. Apply overlays in order, skipping any missing directory:
+    1) **Platform family** → 2) **Build type** → 3) **Profiles** (left → right).
+3. Only resource roots are considered: `values*`, `drawable*`, `font`, `files`.
+4. **Override rule:** a later overlay **replaces** an earlier file when the **relative path** and *
+   *name** match (e.g., `drawable/logo.png`). Shared < Platform < Build type < Profiles.
+
 > **Override rule**: an overlay file **replaces** earlier entries when the **relative path** and
 > **name** match (e.g., `drawable/logo.png`). Shared < Platform family < Build type < Profiles.
 
@@ -176,29 +185,6 @@ Notes:
 
 ---
 
-## Diagnostics
-
-Run these to understand what the plugin is doing (use your module name instead of `:composeApp`):
-
-```bash
-# Show resolved stack + directories for theme-blue → brand-alpha
-./gradlew :composeApp:kprofilesPrintEffective -Pkprofiles.profiles=theme-blue,brand-alpha
-
-# Validate structure (warns about missing values/*.xml or illegal Android names)
-./gradlew :composeApp:kprofilesVerify -Pkprofiles.profiles=theme-blue,brand-alpha
-
-# Inspect every prepared file with its origin and size
-./gradlew :composeApp:kprofilesDiag -Pkprofiles.profiles=theme-blue,brand-alpha
-```
-
-Diagnostics print the **context vector** (platform family, build type, stack source: CLI |
-ENV | DEFAULT | NONE) plus every overlay directory actually applied for resources and config.
-
-Tip: set `kprofiles.strictAndroidNames.set(true)` in your build script if you want `kprofilesVerify`
-to **fail** instead of warn whenever filenames break Android's lowercase/underscore rules.
-
----
-
 ## Profile-aware config
 
 You can also generate a typed Kotlin config object from simple YAML files. We have functionality
@@ -206,11 +192,14 @@ for overlay-driven, profile-aware config generation (something that can replace 
 your workflow while being compatible with kprofiles). Enable the feature once:
 
 ```kotlin
+import dev.goquick.kprofiles.generatedConfig
+...
+
 kprofiles {
-    generatedConfig.apply {
-        enabled.set(true)
-        packageName.set("dev.example.config")
-        typeName.set("AppConfig")
+    generatedConfig {
+        enabled = true
+        packageName = "dev.example.config"
+        typeName = "AppConfig"
     }
 }
 ```
@@ -224,7 +213,7 @@ follow the **same order** as resources:
 
 Only scalars are allowed (string, int, double, boolean). Missing files are skipped silently.
 
-Example:
+### Example
 
 ```
 src/commonMain/config/app.yaml
@@ -243,9 +232,9 @@ build type → staging) and generates:
 package dev.example.config
 
 object AppConfig {
-    val apiBaseUrl: String = "https://staging.example.com"
-    val featureX: Boolean = true
-    val retryCount: Int = 3
+    const val apiBaseUrl: String = "https://staging.example.com"
+    const val featureX: Boolean = true
+    const val retryCount: Int = 3
 }
 ```
 
@@ -271,6 +260,34 @@ The generated sources live under `build/generated/kprofiles/config/<sourceSet>` 
 `kprofiles.generatedConfig.enabled=true`. Eligible scalars (String/Boolean/Int/Long/Double with
 finite values) are emitted as `const val` by default; disable via
 `generatedConfig.preferConstScalars.set(false)`.
+
+### Advanced config usage
+
+Need to inject a raw Kotlin expression instead of a scalar? Prefix the string with `[=val]` and the
+generator emits the remainder verbatim without quotes. For example:
+
+```
+mainColor: "[=val] androidx.compose.ui.graphics.Color(0xFF0D47A1)"
+```
+
+becomes:
+
+```kotlin
+val mainColor = androidx.compose.ui.graphics.Color(0xFF0D47A1)
+```
+
+Assigned expressions always use `val` (never `const val`) and omit explicit types so you can
+reference any shared API.
+
+You can also pull secrets/config directly from build inputs:
+
+- `[=env] VAR_NAME` / `[=env?] VAR_NAME` — read OS environment variables (optional variant
+  falls back to `""`).
+- `[=prop] KEY` / `[=prop?] KEY` — read Gradle properties (passed via `-Pkey=value` or
+  `gradle.properties`).
+
+Values are never echoed to logs, making it easy to flow CI secrets into generated config without
+checking them into source control.
 
 ---
 
@@ -318,18 +335,7 @@ If neither is set, `kprofiles.defaultProfiles` is used (if provided), otherwise 
 
 When your module declares more than one Kotlin target family (e.g., JVM + iOS), you must select one
 per invocation using `-Pkprofiles.family=…` (or `KPROFILES_FAMILY`). This keeps Compose from
-emitting
-duplicate `Res.*` accessors. Single-family modules infer the family automatically.
-
-### Profile selection precedence
-
-1. `-Pkprofiles.profiles=…`
-2. `KPROFILES_PROFILES=…`
-3. `kprofiles { defaultProfiles.set(...) }`
-4. Shared-only resources
-
-When the fallback (defaultProfiles) is applied, the plugin logs a single INFO line indicating the
-stack and reminding you that `-Pkprofiles.profiles` / `KPROFILES_PROFILES` overrides it.
+emitting duplicate `Res.*` accessors. Single-family modules infer the family automatically.
 
 ### Platform selection
 
@@ -345,45 +351,58 @@ stack and reminding you that `-Pkprofiles.profiles` / `KPROFILES_PROFILES` overr
 
 ---
 
-## Examples
+## Diagnostics
 
-**A. Single theme**
+Run these to understand what the plugin is doing (use your module name instead of `:composeApp`):
 
 ```bash
-./gradlew :composeApp:build -Pkprofiles.profiles=theme-blue
+# Show resolved stack + directories for theme-blue → brand-alpha
+./gradlew :composeApp:kprofilesPrintEffective -Pkprofiles.profiles=theme-blue,brand-alpha
+
+# Validate structure (warns about missing values/*.xml or illegal Android names)
+./gradlew :composeApp:kprofilesVerify -Pkprofiles.profiles=theme-blue,brand-alpha
+
+# Inspect every prepared file with its origin and size
+./gradlew :composeApp:kprofilesDiag -Pkprofiles.profiles=theme-blue,brand-alpha
 ```
 
-**B. Theme + brand (brand overrides theme)**
+Diagnostics print the **context vector** (platform family, build type, stack source: CLI |
+ENV | DEFAULT | NONE) plus every overlay directory actually applied for resources and config.
 
-```bash
-./gradlew :composeApp:build -Pkprofiles.profiles=theme-blue,brand-alpha
+Tip: set `kprofiles.strictAndroidNames.set(true)` in your build script if you want `kprofilesVerify`
+to **fail** instead of warn whenever filenames break Android's lowercase/underscore rules.
+
+---
+
+## Tips
+
+### Strings overlays
+
+- Keep all shared keys in strings.xml.
+- Put platform/build-type/profile-specific additions in separate files (e.g., strings_platform.xml)
+  so you don’t replace the whole shared file.
+
+**Shared (common)** _src/commonMain/composeResources/values/strings.xml_
+
+```
+<resources>
+<string name="app_name">Kprofiles Demo</string>
+<string name="welcome">Welcome</string>
+</resources>
 ```
 
-**C. CI-friendly env var**
+**Android-only additions** _overlays/platform/android/composeResources/values/strings_platform.xml_
 
-```bash
-KPROFILES_PROFILES=theme-green ./gradlew :composeApp:assembleDebug
+```
+<resources>
+<string name="platform_label">Android</string>
+</resources>
 ```
 
-### Sample app demo
+**iOS-only additions** _overlays/platform/ios/composeResources/values/strings_platform.xml_
 
-The repository includes a Compose sample (`sample-app`) wired with platform, build-type, and profile
-overlays:
-
-- Resource overlays live under `sample-app/composeApp/overlays/{platform,buildType,profile}/…`
-  (e.g., Android overrides `platform_label`, the debug build overrides `build_type_label`).
-- Config overlays mirror the structure (e.g., `overlays/platform/jvm/config/app.yaml` tweaks
-  `apiBaseUrl`).
-
-Try these commands to inspect the stack:
-
-```bash
-# Show the context vector + overlay directories for the desktop target
-./gradlew :sample-app:composeApp:kprofilesPrintEffective -Pkprofiles.profiles=theme-blue,brand-alpha
-
-# Print every prepared file with its origin layer
-./gradlew :sample-app:composeApp:kprofilesDiag -Pkprofiles.profiles=theme-blue,brand-alpha
-
-# Launch the desktop sample and observe platform/build-type/profile-driven UI changes
-./gradlew :sample-app:composeApp:run -Pkprofiles.profiles=theme-blue,brand-alpha
+```
+<resources>
+  <string name="platform_label">iOS</string>
+</resources>
 ```
