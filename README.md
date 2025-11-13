@@ -1,5 +1,11 @@
 # Kprofiles
 
+[![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-blue?logo=kotlin)](https://kotlinlang.org/docs/multiplatform.html)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.goquick.kprofiles/dev.goquick.kprofiles.gradle.plugin?logo=apache-maven&label=Maven%20Central)](https://central.sonatype.com/artifact/dev.goquick.kprofiles/dev.goquick.kprofiles.gradle.plugin)
+[![CI](https://img.shields.io/github/actions/workflow/status/mobiletoly/kmp-kprofiles/gradle.yml?branch=main&logo=github&label=CI)](https://github.com/mobiletoly/kmp-kprofiles/actions/workflows/gradle.yml)
+[![License](https://img.shields.io/github/license/mobiletoly/kmp-kprofiles?logo=apache&label=License)](LICENSE)
+
+
 Profile‑ and platform‑aware **Compose Multiplatform** resources **and config** for **Android, iOS,
 and Desktop**.  
 Kprofiles prepares a single **merged resource tree** for Compose by layering your shared assets with
@@ -53,7 +59,7 @@ merged tree.
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
-    id("dev.goquick.kprofiles") version "0.1.0"
+    id("dev.goquick.kprofiles") version "0.1.2"
 }
 ```
 
