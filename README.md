@@ -229,12 +229,14 @@ Only scalars are allowed (string, int, double, boolean). Missing files are skipp
 
 ### Example
 
+_src/commonMain/config/app.yaml_
 ```
-src/commonMain/config/app.yaml
 apiBaseUrl: "https://api.example.com"
 retryCount: 3
+```
 
-overlays/profile/staging/config/app.yaml
+_overlays/profile/staging/config/app.yaml_
+```
 apiBaseUrl: "https://staging.example.com"
 featureX: true
 ```
