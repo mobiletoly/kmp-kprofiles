@@ -28,7 +28,15 @@ internal class ProfileResolver(
         if (!cliStackRaw.isNullOrBlank() && !envStackRaw.isNullOrBlank() && cliStackRaw != envStackRaw) {
             project.logger.info("Kprofiles: -Pkprofiles.profiles overrides $ENV_VAR_NEW.")
         }
-        return resolveProfiles(cliStackRaw, envStackRaw)
+        val selection = resolveProfiles(cliStackRaw, envStackRaw)
+        when (selection.source) {
+            ProfileSource.DEFAULT ->
+                project.logger.info("Kprofiles: using defaultProfiles=${selection.profiles}")
+            ProfileSource.NONE ->
+                project.logger.info("Kprofiles: Using shared resources only.")
+            else -> {}
+        }
+        return selection
     }
 
     internal fun resolveProfiles(

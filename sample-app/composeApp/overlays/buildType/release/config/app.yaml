@@ -1,2 +1,1 @@
-retryCount: 2
-timeoutSec: 1.5
+debugMode: false
