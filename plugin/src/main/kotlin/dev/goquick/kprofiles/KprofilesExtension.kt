@@ -87,6 +87,11 @@ abstract class KprofilesExtension @Inject constructor(
     val generatedConfig: KprofilesConfigExtension = objects.newInstance(KprofilesConfigExtension::class.java)
 
     /**
+     * If true, missing `[=env]` lookups fall back to values defined in `<project>/.env.local`.
+     */
+    val envLocalFallback: Property<Boolean> = objects.property()
+
+    /**
      * Back-compat alias for generatedConfig.
      */
     @Suppress("unused")
@@ -104,6 +109,7 @@ abstract class KprofilesExtension @Inject constructor(
         collisionPolicy.convention(CollisionPolicy.WARN)
         strictAndroidNames.convention(false)
         logDiagnostics.convention(false)
+        envLocalFallback.convention(true)
 
         defaultProfiles.finalizeValueOnRead()
         sharedDir.finalizeValueOnRead()
@@ -114,6 +120,7 @@ abstract class KprofilesExtension @Inject constructor(
         collisionPolicy.finalizeValueOnRead()
         strictAndroidNames.finalizeValueOnRead()
         logDiagnostics.finalizeValueOnRead()
+        envLocalFallback.finalizeValueOnRead()
     }
 }
 

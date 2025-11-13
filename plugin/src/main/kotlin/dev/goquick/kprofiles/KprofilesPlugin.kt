@@ -27,10 +27,9 @@ import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile
 import java.io.File
 import java.util.Locale
+import java.util.Properties
 
 class KprofilesPlugin : Plugin<Project> {
 
@@ -73,6 +72,7 @@ class KprofilesPlugin : Plugin<Project> {
         validatePattern(buildTypePattern, "%BUILD_TYPE%", "kprofiles.buildTypeDirPattern")
 
         project.afterEvaluate {
+            configureEnvResolver(project, extension)
             val profileSelection = profileSelectionProvider.get()
             when (profileSelection.source) {
                 ProfileResolver.ProfileSource.DEFAULT -> project.logger.info(
@@ -105,6 +105,7 @@ class KprofilesPlugin : Plugin<Project> {
             task.logDiagnostics.set(extension.logDiagnostics)
             task.outputDirectory.set(sharedSnapshotDir)
             task.copyShared.set(true)
+            task.projectDirectory.set(project.layout.projectDirectory)
         }
 
         val overlaySpecsProvider = project.providers.provider {
@@ -136,6 +137,7 @@ class KprofilesPlugin : Plugin<Project> {
             task.overlayLabels.set(overlaySpecsProvider.map { specs -> specs.map { it.label } })
             task.overlayPathStrings.set(overlaySpecsProvider.map { specs -> specs.map { it.path.asFile.absolutePath } })
             task.overlayDirs.from(overlaySpecsProvider.map { specs -> specs.map { it.path } })
+            task.projectDirectory.set(project.layout.projectDirectory)
         }
         val preparedDirFromOverlay = overlayTask.flatMap { it.preparedDirectory }
 
@@ -289,6 +291,7 @@ class KprofilesPlugin : Plugin<Project> {
             task.inputFiles.setFrom(configFilesProvider)
             task.outputFile.set(mergedConfigFile)
             task.onlyIf { enabledProvider.get() }
+            task.projectDirectory.set(project.layout.projectDirectory)
         }
 
         val generateTask = project.tasks.register("kprofilesGenerateConfigFor$cap", KprofilesGenerateConfigTask::class.java) { task ->
@@ -302,8 +305,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.preferConstScalars.set(extension.generatedConfig.preferConstScalars)
             task.onlyIf { enabledProvider.get() }
         }
-        generateTask.configure { task ->
-            task.doFirst {
+        project.afterEvaluate {
+            if (enabledProvider.get()) {
                 val derivedDefaultPackage = project.group.toString().takeIf { it.isNotBlank() }?.let { "$it.config" } ?: DEFAULT_CONFIG_PACKAGE
                 val packageExplicit = extension.generatedConfig.packageName.isPresent
                 val packageNameValue = extension.generatedConfig.packageName.orNull ?: derivedDefaultPackage
@@ -357,8 +360,15 @@ class KprofilesPlugin : Plugin<Project> {
             }
         }
 
-        project.tasks.withType(KotlinCompile::class.java).configureEach { it.dependsOn(generateTask) }
-        project.tasks.withType(KotlinNativeCompile::class.java).configureEach { it.dependsOn(generateTask) }
+        val compileTaskClasses = listOf(
+            "org.jetbrains.kotlin.gradle.tasks.KotlinCompile",
+            "org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile",
+            "org.jetbrains.kotlin.gradle.tasks.KotlinJsCompile",
+            "org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile"
+        )
+        compileTaskClasses.forEach { taskClass ->
+            dependOnTasksNamed(project, taskClass, generateTask)
+        }
 
         return generateTask
     }
@@ -436,6 +446,48 @@ class KprofilesPlugin : Plugin<Project> {
     }
 }
 
+private fun configureEnvResolver(project: Project, extension: KprofilesExtension) {
+    val fallbackEnabled = extension.envLocalFallback.getOrElse(true)
+    if (!fallbackEnabled) {
+        KprofilesEnv.resolver = { key -> System.getenv(key) }
+        return
+    }
+    val envFile = project.rootProject.layout.projectDirectory.file(".env.local").asFile
+    val values = loadEnvLocal(envFile, project.logger)
+    if (values.isNotEmpty()) {
+        project.logger.info("Kprofiles: loaded ${values.size} entries from .env.local")
+    }
+    KprofilesEnv.resolver = { key -> System.getenv(key) ?: values[key] }
+}
+
+private fun loadEnvLocal(file: File, logger: org.gradle.api.logging.Logger): Map<String, String> {
+    if (!file.exists()) return emptyMap()
+    val result = linkedMapOf<String, String>()
+    file.useLines { sequence ->
+        sequence.forEachIndexed { index, rawLine ->
+            val line = rawLine.trim()
+            if (line.isEmpty() || line.startsWith("#")) return@forEachIndexed
+            val cleaned = if (line.startsWith("export ")) line.removePrefix("export ").trim() else line
+            val equalsIndex = cleaned.indexOf('=')
+            if (equalsIndex <= 0) {
+                logger.warn("Kprofiles: ignoring malformed line ${index + 1} in .env.local")
+                return@forEachIndexed
+            }
+            val key = cleaned.substring(0, equalsIndex).trim()
+            if (key.isEmpty()) {
+                logger.warn("Kprofiles: ignoring blank key on line ${index + 1} in .env.local")
+                return@forEachIndexed
+            }
+            var value = cleaned.substring(equalsIndex + 1).trim()
+            if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\''))) {
+                value = value.substring(1, value.length - 1)
+            }
+            result[key] = value
+        }
+    }
+    return result
+}
+
 private data class OverlaySpec(
     val sourceSetName: String,
     val label: String,
@@ -457,6 +509,16 @@ private fun validatePattern(pattern: String, token: String, label: String) {
 
 private const val OWNER_SOURCE_SET = "commonMain"
 private const val DEFAULT_CONFIG_PACKAGE = "dev.goquick.kprofiles.config"
+
+@Suppress("UNCHECKED_CAST")
+private fun dependOnTasksNamed(project: Project, className: String, dependency: Any) {
+    val taskClass = runCatching { Class.forName(className) }
+        .getOrNull()
+        ?.takeIf { Task::class.java.isAssignableFrom(it) }
+        as? Class<out Task>
+        ?: return
+    project.tasks.withType(taskClass).configureEach { it.dependsOn(dependency) }
+}
 
 private fun computeOverlaySpecs(
     project: Project,

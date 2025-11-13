@@ -14,8 +14,8 @@
 - KprofilesPlugin activates after the KMP plugin, resolves the profile stack, enforces the commonMain owner source set, and requires a single platform family/build-type per invocation
   (detected or supplied via -Pkprofiles.family/kprofiles.buildType) to avoid duplicate Compose resources (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesPlugin.kt:35-95, plugin/
   src/main/kotlin/dev/goquick/kprofiles/PlatformFamilies.kt:26-133).
-- The KprofilesExtension exposes defaults for shared directories, overlay patterns, allowed top-level roots, collision policy, strict Android name checking, diagnostics logging, and
-  generated-config options so consumers can tweak behavior declaratively (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesExtension.kt:32-134).
+- The KprofilesExtension exposes defaults for shared directories, overlay patterns, allowed top-level roots, collision policy, strict Android name checking, diagnostics logging,
+  `.env.local` fallback toggles, and generated-config options so consumers can tweak behavior declaratively (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesExtension.kt:32-138).
 - KprofilesPrepareSharedTask copies only approved roots from src/commonMain/composeResources, filters hidden/symlinked entries, and logs ignored folders before any overlays run
   (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesPrepareSharedTask.kt:35-113).
 - KprofilesOverlayTask then layers platform/build-type/profile directories in order, warns about missing/ignored folders, enforces the selected collision policy, and copies files
@@ -31,7 +31,8 @@
 - The README documents flat YAML overlays at src/commonMain/config/app.yaml plus platform/build-type/profile counterparts, allowing only scalar values so merged configs stay trivially
   serializable (README.md:204-259).
 - KprofilesMergeConfigTask reads ordered YAML inputs, rejects unsupported types or duplicate keys, and writes a merged JSON snapshot, while KprofilesGenerateConfigTask turns that into
-  a Kotlin object using const vals whenever the scalar is finite (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesConfigTasks.kt:47-285).
+  a Kotlin object using const vals whenever the scalar is finite. `[=env]` lookups can now fall back to `<root>/.env.local` (opt-out via `envLocalFallback`) before failing, making local
+  secrets management easier without affecting CI (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesConfigTasks.kt:47-289, plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesPlugin.kt:35-520).
 - registerConfigGeneration wires merge → generate → Kotlin compilation, registers the generated source directory with the target source set, and forces Kotlin/JVM/Native compile tasks
   to depend on the config output so AppConfig is always up to date (plugin/src/main/kotlin/dev/goquick/kprofiles/KprofilesPlugin.kt:248-357).
 - KprofilesConfigPrintTask plus the documented CLI commands (kprofilesPrintEffective, kprofilesVerify, kprofilesDiag, kprofilesConfigPrint) make it easy to inspect the active stack,
@@ -67,3 +68,6 @@
   sample-app/composeApp/overlays/profile/theme-blue/config/app.yaml:1-3, sample-app/composeApp/overlays/profile/brand-bravo/config/app.yaml:1-3, sample-app/composeApp/src/androidMain/
   kotlin/dev/goquick/kprofiles/sampleapp/MainActivity.kt:10-24, sample-app/composeApp/src/jvmMain/kotlin/dev/goquick/kprofiles/sampleapp/main.kt:1-12, sample-app/composeApp/src/
   iosMain/kotlin/dev/goquick/kprofiles/sampleapp/MainViewController.kt:1-5).
+- The sample config reads `SAMPLE_APP_SECRET` via `[=env]` (backed by a demo `.env.local`) and
+  `sampleApp.customerId` via `[=prop]` defined in `sample-app/gradle.properties`, illustrating both
+  secret delivery paths without forcing contributors to set local Gradle properties.

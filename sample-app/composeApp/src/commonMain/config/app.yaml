@@ -4,4 +4,5 @@ featureX: false
 timeoutSec: 2.5
 testValue: 1
 mainColor: "[=val] androidx.compose.ui.graphics.Color(0xFF6750A4)"
-propertySecret: "[=prop] sample.app.apiKey"
+propertySecret: "[=env] SAMPLE_APP_SECRET"
+customerId: "[=prop] sampleApp.customerId"

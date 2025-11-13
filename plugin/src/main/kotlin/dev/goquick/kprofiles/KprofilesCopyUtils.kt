@@ -15,7 +15,6 @@
  */
 package dev.goquick.kprofiles
 
-import org.gradle.api.Project
 import java.io.File
 import java.util.Locale
 
@@ -37,8 +36,8 @@ internal fun describeAllowedFolders(allowed: Set<String>): String =
             if (entry == "files") "files/" else "$entry/ or ${entry}-*/"
         }
 
-internal fun relativePath(project: Project, dir: File): String {
-    val root = project.layout.projectDirectory.asFile.toPath().toAbsolutePath().normalize()
+internal fun relativePath(projectDir: File, dir: File): String {
+    val root = projectDir.toPath().toAbsolutePath().normalize()
     val target = dir.toPath().toAbsolutePath().normalize()
     return if (target.startsWith(root)) {
         val rel = root.relativize(target).toString().replace(File.separatorChar, '/')
@@ -47,3 +46,6 @@ internal fun relativePath(project: Project, dir: File): String {
         "[abs]" + target.toString().replace(File.separatorChar, '/')
     }
 }
+
+internal fun relativePath(project: org.gradle.api.Project, dir: File): String =
+    relativePath(project.layout.projectDirectory.asFile, dir)

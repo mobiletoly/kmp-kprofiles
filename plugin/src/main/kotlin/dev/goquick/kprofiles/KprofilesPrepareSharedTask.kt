@@ -54,17 +54,23 @@ abstract class KprofilesPrepareSharedTask @Inject constructor(
     @get:Input
     abstract val copyShared: Property<Boolean>
 
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
+
+    init {
+        projectDirectory.convention(project.layout.projectDirectory)
+    }
+
     @TaskAction
     fun prepare() {
         val output = outputDirectory.asFile.get()
+        val rootDir = projectDirectory.asFile.get()
 
         if (copyShared.getOrElse(true)) {
             val shared = sharedDirectory.asFile.get()
             if (!shared.exists()) {
                 fileSystemOperations.delete { spec -> spec.delete(output) }
-                project.logger.info(
-                    "Kprofiles: shared directory '${relativePath(project, shared)}' not found. Nothing to prepare."
-                )
+                logger.info("Kprofiles: shared directory '${relativePath(rootDir, shared)}' not found. Nothing to prepare.")
                 return
             }
 
@@ -77,9 +83,7 @@ abstract class KprofilesPrepareSharedTask @Inject constructor(
                     ?.forEach { top ->
                         val name = top.name
                         if (!matchesAllowedTopLevel(name, allowed)) {
-                            project.logger.warn(
-                                "Kprofiles: ignored '$name' under '${relativePath(project, shared)}'. Allowed: ${describeAllowedFolders(allowed)}"
-                            )
+                            logger.warn("Kprofiles: ignored '$name' under '${relativePath(rootDir, shared)}'. Allowed: ${describeAllowedFolders(allowed)}")
                         }
                     }
             }

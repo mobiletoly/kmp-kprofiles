@@ -18,6 +18,7 @@ package dev.goquick.kprofiles
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
@@ -40,7 +41,8 @@ import javax.inject.Inject
 
 @CacheableTask
 abstract class KprofilesOverlayTask @Inject constructor(
-    objects: ObjectFactory
+    objects: ObjectFactory,
+    private val fileSystemOperations: FileSystemOperations
 ) : DefaultTask() {
 
     @get:OutputDirectory
@@ -78,6 +80,13 @@ abstract class KprofilesOverlayTask @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     val overlayDirs: ConfigurableFileCollection = objects.fileCollection()
 
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
+
+    init {
+        projectDirectory.convention(project.layout.projectDirectory)
+    }
+
     @TaskAction
     fun overlay() {
         val allowed = allowedTopLevelDirs.get()
@@ -85,32 +94,30 @@ abstract class KprofilesOverlayTask @Inject constructor(
         val diagnosticsEnabled = logDiagnostics.getOrElse(true)
         val overlayPaths = overlayPathStrings.get()
         val labels = overlayLabels.get()
-        val overlayRoots = overlayPaths.map { project.layout.projectDirectory.file(it).asFile }
+        val overlayRoots = overlayPaths.map { File(it) }
         val sharedRoot = sharedInputDirectory.asFile.get()
         val prepared = preparedDirectory.asFile.get()
+        val rootDir = projectDirectory.asFile.get()
 
-        project.delete(prepared)
+        fileSystemOperations.delete { spec -> spec.delete(prepared) }
         Files.createDirectories(prepared.toPath())
         if (sharedRoot.exists()) {
-            project.copy { spec ->
+            fileSystemOperations.sync { spec ->
                 spec.from(sharedRoot)
                 spec.into(prepared)
             }
         } else {
-            project.logger.info(
-                "Kprofiles: shared snapshot '${relativePath(project, sharedRoot)}' not found. Proceeding with overlays only."
-            )
+            logger.info("Kprofiles: shared snapshot '${relativePath(rootDir, sharedRoot)}' not found. Proceeding with overlays only.")
         }
 
         if (labels.size != overlayPaths.size) {
-            project.logger.warn(
-                "Kprofiles: overlay metadata mismatch (labels=${labels.size}, paths=${overlayPaths.size}). " +
-                    "labels=${labels.joinToString()} paths=${overlayPaths.joinToString()}"
+            logger.warn(
+                "Kprofiles: overlay metadata mismatch (labels=${labels.size}, paths=${overlayPaths.size}). labels=${labels.joinToString()} paths=${overlayPaths.joinToString()}"
             )
         }
         if (overlayPaths.size > labels.size) {
             val extras = overlayPaths.drop(labels.size)
-            project.logger.warn(
+            logger.warn(
                 "Kprofiles: ${extras.size} overlay path(s) lack labels and will be ignored: ${extras.joinToString()}"
             )
         }
@@ -120,20 +127,20 @@ abstract class KprofilesOverlayTask @Inject constructor(
             root.exists() && runCatching { root.canonicalFile }.getOrNull() !in declaredInputDirs
         }
         if (missingInCollection.isNotEmpty()) {
-            val rendered = missingInCollection.joinToString { relativePath(project, it) }
-            project.logger.info("Kprofiles: overlay directories not tracked in overlayDirs inputs: $rendered")
+            val rendered = missingInCollection.joinToString { relativePath(rootDir, it) }
+            logger.info("Kprofiles: overlay directories not tracked in overlayDirs inputs: $rendered")
         }
 
         labels.forEachIndexed { index, label ->
             val root = overlayRoots.getOrNull(index)
             if (root == null || !root.exists()) {
-                val rendered = root?.let { relativePath(project, it) } ?: "<missing>"
-                project.logger.info(
+                val rendered = root?.let { relativePath(rootDir, it) } ?: "<missing>"
+                logger.info(
                     "Kprofiles: overlay '$label' not found at '$rendered'. Proceeding with shared resources only."
                 )
                 return@forEachIndexed
             }
-            applyOverlay(label, root, prepared, allowed, policy, diagnosticsEnabled)
+            applyOverlay(label, root, prepared, allowed, policy, diagnosticsEnabled, rootDir)
         }
     }
 
@@ -143,7 +150,8 @@ abstract class KprofilesOverlayTask @Inject constructor(
         prepared: File,
         allowed: Set<String>,
         policy: CollisionPolicy,
-        diagnosticsEnabled: Boolean
+        diagnosticsEnabled: Boolean,
+        rootDir: File
     ) {
         val topEntries = root.listFiles() ?: return
         if (topEntries.isEmpty()) return
@@ -152,9 +160,7 @@ abstract class KprofilesOverlayTask @Inject constructor(
             val name = top.name
             if (!matchesAllowedTopLevel(name, allowed)) {
                 if (diagnosticsEnabled) {
-                    project.logger.warn(
-                        "Kprofiles: ignored '$name' under '${relativePath(project, root)}'. Allowed: ${describeAllowedFolders(allowed)}"
-                    )
+                    logger.warn("Kprofiles: ignored '$name' under '${relativePath(rootDir, root)}'. Allowed: ${describeAllowedFolders(allowed)}")
                 }
                 continue
             }
@@ -183,9 +189,7 @@ abstract class KprofilesOverlayTask @Inject constructor(
                         CollisionPolicy.FAIL -> error(
                             "Kprofiles: collision on '$relative' (layer='$label'). Set collisionPolicy=WARN or rename."
                         )
-                        CollisionPolicy.WARN -> project.logger.info(
-                            "Kprofiles: override '$relative' from layer '$label' replaced previous content."
-                        )
+                        CollisionPolicy.WARN -> logger.info("Kprofiles: override '$relative' from layer '$label' replaced previous content.")
                         CollisionPolicy.SILENT -> {}
                     }
                 }

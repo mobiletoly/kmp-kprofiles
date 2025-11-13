@@ -75,6 +75,13 @@ overlays/profile/theme-blue/composeResources/drawable/logo.png     # overrides
 
 # Or use environment variables
 KPROFILES_PROFILES=theme-blue KPROFILES_FAMILY=jvm ./gradlew :composeApp:build
+
+The included sample app demonstrates the `.env.local` fallback: it reads `SAMPLE_APP_SECRET` via
+`[=env]` and we ship a `.env.local` with a harmless value so `./gradlew :sample-app:build` works out
+of the box. It also defines `sampleApp.customerId` in `sample-app/gradle.properties` and consumes it
+with `[=prop]` inside the generated config. Override the environment variable (or edit `.env.local`)
+and/or tweak `sample-app/gradle.properties` to simulate different secrets—real projects should
+git-ignore `.env.local` and let CI inject values via the environment.
 ```
 
 That’s it — Compose now generates `Res.*` against the **merged** tree, so your overlayed `logo.png`
@@ -282,13 +289,17 @@ reference any shared API.
 
 You can also pull secrets/config directly from build inputs:
 
-- `[=env] VAR_NAME` / `[=env?] VAR_NAME` — read OS environment variables (optional variant
-  falls back to `""`).
+- `[=env] VAR_NAME` / `[=env?] VAR_NAME` — read OS environment variables (optional `env?` variant
+  falls back to `""`). When the variable is missing and `envLocalFallback` is `true` (default),
+  Kprofiles also looks for a matching entry in `<root>/.env.local` so developers can keep
+  secrets out of the tree while CI still relies on real env vars.
 - `[=prop] KEY` / `[=prop?] KEY` — read Gradle properties (passed via `-Pkey=value` or
   `gradle.properties`).
 
 Values are never echoed to logs, making it easy to flow CI secrets into generated config without
-checking them into source control.
+checking them into source control. For local development, drop sensitive values into
+`<project>/.env.local` (git-ignored) and keep CI/CD pipelines wiring them via real environment
+variables.
 
 ---
 
@@ -314,6 +325,9 @@ kprofiles {
     // Top-level resource roots allowed in overlays. Suffix qualifiers supported with '-...'.
     // Default: {"values", "drawable", "font", "files"}
     allowedTopLevelDirs.set(setOf("drawable", "values", "font", "files"))
+
+    // Allow [=env] lookups to fall back to <root>/.env.local (default: true).
+    envLocalFallback.set(true)
 
     // When an overlay replaces an existing file: WARN, FAIL, or SILENT (default: WARN).
     collisionPolicy.set(CollisionPolicy.WARN)

@@ -29,6 +29,7 @@ import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -71,28 +72,28 @@ abstract class KprofilesMergeConfigTask @Inject constructor(
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
-    private val yaml: Yaml by lazy {
-        val options = LoaderOptions().apply {
-            isAllowDuplicateKeys = false
-        }
-        Yaml(SafeConstructor(options))
-    }
-    private val mapper = ObjectMapper().apply {
-        enable(JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS)
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
+
+    init {
+        projectDirectory.convention(project.layout.projectDirectory)
     }
 
     @TaskAction
     fun merge() {
-        val filesByPath = inputFiles.files.associateBy { project.relativePath(it) }
+        val yaml = createYaml()
+        val mapper = createObjectMapper()
+        val rootDir = projectDirectory.asFile.get()
+        val filesByPath = inputFiles.files.associateBy { relativePath(rootDir, it) }
         val merged = linkedMapOf<String, Any>()
         orderedInputPaths.get().forEach { relPath ->
             val file = filesByPath[relPath]
             if (file == null) {
-                project.logger.info("Kprofiles: ordered input '$relPath' not found; skipping.")
+                logger.info("Kprofiles: ordered input '$relPath' not found; skipping.")
                 return@forEach
             }
             if (!file.exists()) return@forEach
-            val parsed = parseYaml(file)
+            val parsed = parseYaml(file, yaml, rootDir)
             merged.putAll(parsed)
         }
         outputFile.get().asFile.apply {
@@ -103,23 +104,23 @@ abstract class KprofilesMergeConfigTask @Inject constructor(
         }
     }
 
-    private fun parseYaml(file: File): Map<String, Any> {
+    private fun parseYaml(file: File, yaml: Yaml, rootDir: File): Map<String, Any> {
         val loaded = file.inputStream().bufferedReader(StandardCharsets.UTF_8).use { reader ->
             yaml.load<Any?>(reader)
         } ?: return emptyMap()
         if (loaded !is Map<*, *>) {
-            error("Kprofiles: config file '${project.relativePath(file)}' must be a YAML map of key/value pairs.")
+            error("Kprofiles: config file '${relativePath(rootDir, file)}' must be a YAML map of key/value pairs.")
         }
         val result = linkedMapOf<String, Any>()
         loaded.forEach { (k, v) ->
-            val key = k?.toString() ?: error("Kprofiles: config key in '${project.relativePath(file)}' is null.")
-            result[key] = convertValue(file, key, v)
+            val key = k?.toString() ?: error("Kprofiles: config key in '${relativePath(rootDir, file)}' is null.")
+            result[key] = convertValue(file, key, v, rootDir)
         }
         return result
     }
 
-    private fun convertValue(file: File, key: String, value: Any?): Any = when (value) {
-        null -> failType(file, key, "null")
+    private fun convertValue(file: File, key: String, value: Any?, rootDir: File): Any = when (value) {
+        null -> failType(file, key, "null", rootDir)
         is String -> value
         is Boolean -> value
         is Int -> value
@@ -131,17 +132,17 @@ abstract class KprofilesMergeConfigTask @Inject constructor(
             when {
                 value.bitLength() <= 31 -> value.toInt()
                 value.bitLength() <= 63 -> value.toLong()
-                else -> failType(file, key, "integer(out-of-range)")
+                else -> failType(file, key, "integer(out-of-range)", rootDir)
             }
         }
         is BigDecimal -> value.toDouble()
         is Number -> value.toLong()
-        else -> failType(file, key, value::class.java.simpleName ?: value::class.java.name)
+        else -> failType(file, key, value::class.java.simpleName ?: value::class.java.name, rootDir)
     }
 
-    private fun failType(file: File, key: String, type: String): Nothing {
+    private fun failType(file: File, key: String, type: String, rootDir: File): Nothing {
         error(
-            "Kprofiles: config key '$key' in '${project.relativePath(file)}' uses unsupported type '$type'. " +
+            "Kprofiles: config key '$key' in '${relativePath(rootDir, file)}' uses unsupported type '$type'. " +
                 "Allowed types: string, boolean, int, long, double."
         )
     }
@@ -166,12 +167,9 @@ abstract class KprofilesGenerateConfigTask @Inject constructor() : DefaultTask()
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
-    private val mapper = ObjectMapper().apply {
-        enable(JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS)
-    }
-
     @TaskAction
     fun generate() {
+        val mapper = createObjectMapper()
         val data: Map<String, Any?> = mapper.readValue(
             mergedConfigFile.get().asFile,
             object : TypeReference<Map<String, Any?>>() {}
@@ -366,10 +364,9 @@ abstract class KprofilesConfigPrintTask : DefaultTask() {
     @get:Input
     abstract val buildType: Property<String>
 
-    private val mapper = ObjectMapper()
-
     @TaskAction
     fun printConfig() {
+        val mapper = createObjectMapper()
         val data: Map<String, Any?> = mapper.readValue(
             mergedConfigFile.get().asFile,
             object : TypeReference<Map<String, Any?>>() {}
@@ -403,6 +400,18 @@ private const val ENV_PREFIX = "[=env]"
 private const val ENV_OPTIONAL_PREFIX = "[=env?]"
 private const val PROP_PREFIX = "[=prop]"
 private const val PROP_OPTIONAL_PREFIX = "[=prop?]"
+
+private fun createObjectMapper(): ObjectMapper =
+    ObjectMapper().apply {
+        enable(JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS)
+    }
+
+private fun createYaml(): Yaml {
+    val options = LoaderOptions().apply {
+        isAllowDuplicateKeys = false
+    }
+    return Yaml(SafeConstructor(options))
+}
 
 internal object KprofilesEnv {
     @Volatile

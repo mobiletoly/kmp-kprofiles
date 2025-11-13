@@ -350,6 +350,47 @@ ${if (configBody.isBlank()) "" else configBody + "\n"}
         assertTrue(result.output.contains("config flag = true"))
     }
 
+    @Test
+    fun `env local fallback resolves missing env values`() {
+        setupSimpleProject(
+            strictAndroid = false,
+            collisionPolicy = null,
+            extraProfilesBlock = """
+                config.enabled.set(true)
+                config.packageName.set("dev.test.config")
+                config.typeName.set("AppConfig")
+            """.trimIndent()
+        )
+        writeConfig("src/commonMain/config/app.yaml", "apiBaseUrl: \"[=env] API_URL\"\n")
+        writeEnvLocal("API_URL=https://env-local\n")
+
+        gradle("kprofilesGenerateConfigForCommonMain")
+        val generated = projectDir.resolve("build/generated/kprofiles/config/commonMain/src/AppConfig.kt")
+        val content = Files.readString(generated)
+        assertTrue(content.contains("https://env-local"), "AppConfig contents:\n$content")
+    }
+
+    @Test
+    fun `env local fallback can be disabled`() {
+        setupSimpleProject(
+            strictAndroid = false,
+            collisionPolicy = null,
+            extraProfilesBlock = """
+                config.enabled.set(true)
+                config.packageName.set("dev.test.config")
+                config.typeName.set("AppConfig")
+                envLocalFallback.set(false)
+            """.trimIndent()
+        )
+        writeConfig("src/commonMain/config/app.yaml", "flag: \"[=env?] FEATURE_FLAG\"\n")
+        writeEnvLocal("FEATURE_FLAG=enabled\n")
+
+        gradle("kprofilesGenerateConfigForCommonMain")
+        val generated = projectDir.resolve("build/generated/kprofiles/config/commonMain/src/AppConfig.kt")
+        val content = Files.readString(generated)
+        assertTrue(!content.contains("enabled"), "AppConfig contents should not include .env.local value:\n$content")
+    }
+
     private fun writeSharedFile(relative: String, content: String) {
         writeFile("src/commonMain/composeResources/$relative", content)
     }
@@ -373,6 +414,8 @@ ${if (configBody.isBlank()) "" else configBody + "\n"}
     }
 
     private fun writeConfig(relative: String, content: String) = writeFile(relative, content)
+
+    private fun writeEnvLocal(content: String) = writeFile(".env.local", content)
 
     private fun gradle(vararg args: String): org.gradle.testkit.runner.BuildResult =
         gradle(args = args, environment = emptyMap())
