@@ -35,13 +35,13 @@ conflict‑free tree.
 
 ## Concepts
 
-- **Shared** — your normal resources under `src/<sourceSet>/composeResources` (e.g.,
+- **Shared** - your normal resources under `src/<sourceSet>/composeResources` (e.g.,
   `src/commonMain/composeResources`).
-- **Platform family** — high‑level target: `android`, `ios`, or `jvm`. Auto‑detected, or pass
+- **Platform family** - high-level target: `android`, `ios`, `jvm`, or `wasm`. Auto-detected, or pass
   `-Pkprofiles.family=…` (or `KPROFILES_FAMILY` environment variable).
-- **Build type** — when known (`debug` / `release`) for Android variants and some Kotlin/Native
+- **Build type** - when known (`debug` / `release`) for Android variants and some Kotlin/Native
   compilations.
-- **Profiles** — your own layers such as `brand-alpha`, `theme-blue`, `dev`, `staging`. Select with
+- **Profiles** - your own layers such as `brand-alpha`, `theme-blue`, `dev`, `staging`. Select with
   `-Pkprofiles.profiles=a,b` (or `KPROFILES_PROFILES` environment variable).
 
 **Merge order:** Shared → Platform → BuildType → Profiles (left→right). **Last wins** on
@@ -156,9 +156,6 @@ overlays/profile/brand-alpha/composeResources/values/strings.xml
 4. **Override rule:** a later overlay **replaces** an earlier file when the **relative path** and *
    *name** match (e.g., `drawable/logo.png`). Shared < Platform < Build type < Profiles.
 
-> **Override rule**: an overlay file **replaces** earlier entries when the **relative path** and
-> **name** match (e.g., `drawable/logo.png`). Shared < Platform family < Build type < Profiles.
-
 ### Platform & build-type quick reference
 
 | Target / compilation example      | Platform family | Overlay directory                                              |
@@ -217,6 +214,8 @@ kprofiles {
     }
 }
 ```
+
+**Note:** `packageName` is required (no default).
 
 Place flat key/value YAML at `src/commonMain/config/app.yaml` along with optional overlays that
 follow the **same order** as resources:
@@ -319,9 +318,6 @@ Everything is optional; defaults are sensible.
 kprofiles {
     // Default stack when CLI/env are not set. Order matters (last wins).
     defaultProfiles.set(listOf("theme-blue", "brand-alpha"))
-
-    // Which KMP source set to prepare (currently only "commonMain" is supported).
-    sourceSets.set(listOf("commonMain"))
 
     // Shared resource root (default: "src/commonMain/composeResources").
     sharedDir.set(layout.projectDirectory.dir("src/commonMain/composeResources"))
