@@ -81,13 +81,6 @@ overlays/profile/theme-blue/composeResources/drawable/logo.png     # overrides
 
 # Or use environment variables
 KPROFILES_PROFILES=theme-blue KPROFILES_FAMILY=jvm ./gradlew :composeApp:build
-
-The included sample app demonstrates the `.env.local` fallback: it reads `SAMPLE_APP_SECRET` via
-`[=env]` and we ship a `.env.local` with a harmless value so `./gradlew :sample-app:build` works out
-of the box. It also defines `sampleApp.customerId` in `sample-app/gradle.properties` and consumes it
-with `[=prop]` inside the generated config. Override the environment variable (or edit `.env.local`)
-and/or tweak `sample-app/gradle.properties` to simulate different secrets—real projects should
-git-ignore `.env.local` and let CI inject values via the environment.
 ```
 
 That’s it — Compose now generates `Res.*` against the **merged** tree, so your overlayed `logo.png`
