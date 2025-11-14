@@ -59,7 +59,7 @@ merged tree.
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
-    id("dev.goquick.kprofiles") version "0.1.2"
+    id("dev.goquick.kprofiles") version <latest-version>
 }
 ```
 
