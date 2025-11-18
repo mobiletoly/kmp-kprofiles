@@ -1,11 +1,11 @@
 plugins {
     kotlin("jvm") version "2.2.21"
     `java-gradle-plugin`
-    id("com.vanniktech.maven.publish") version "0.34.0"
+    id("com.vanniktech.maven.publish") version "0.35.0"
 }
 
 group = "dev.goquick.kprofiles"
-version = "0.1.3"
+version = "0.1.4"
 
 repositories {
     mavenCentral()
@@ -18,8 +18,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.21")
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21")
     compileOnly("org.jetbrains.compose:compose-gradle-plugin:1.9.3")
-    implementation("org.yaml:snakeyaml:2.2")
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")
+    implementation("org.yaml:snakeyaml:2.5")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
 
     testImplementation(kotlin("test"))
     testImplementation(gradleTestKit())
