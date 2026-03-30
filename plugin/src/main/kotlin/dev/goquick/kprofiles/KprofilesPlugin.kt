@@ -160,8 +160,12 @@ class KprofilesPlugin : Plugin<Project> {
         validatePattern(platformPattern, "%FAMILY%", "kprofiles.platformDirPattern")
         validatePattern(buildTypePattern, "%BUILD_TYPE%", "kprofiles.buildTypeDirPattern")
 
-        val activeFamily = PlatformFamilies.resolveActiveFamily(project, kotlinExt)
-        val activeBuildType = resolveActiveBuildType(project)
+        val activeFamilyProvider = project.providers.provider {
+            PlatformFamilies.resolveActiveFamily(project, kotlinExt)
+        }
+        val activeBuildTypeProvider = project.providers.provider {
+            resolveActiveBuildType(project).orEmpty()
+        }
         val sharedDirProvider = extension.sharedDir
 
         val sharedSnapshotDir =
@@ -188,8 +192,8 @@ class KprofilesPlugin : Plugin<Project> {
             val selection = profileSelectionProvider.get()
             computeOverlaySpecs(
                 project = project,
-                family = activeFamily,
-                buildType = activeBuildType,
+                family = activeFamilyProvider.get(),
+                buildType = activeBuildTypeProvider.get().ifBlank { null },
                 profileStack = selection.profiles,
                 profileDirPattern = profilePattern,
                 platformPattern = platformPattern,
@@ -210,8 +214,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.preparedDirectory.set(preparedDir)
             task.sharedInputDirectory.set(prepareTask.flatMap { it.outputDirectory })
             task.profiles.set(profileStackProvider)
-            task.platformFamily.set(activeFamily)
-            task.buildType.set(activeBuildType ?: "")
+            task.platformFamily.set(activeFamilyProvider)
+            task.buildType.set(activeBuildTypeProvider)
             task.allowedTopLevelDirs.set(extension.allowedTopLevelDirs)
             task.collisionPolicy.set(extension.collisionPolicy)
             task.logDiagnostics.set(extension.logDiagnostics)
@@ -230,8 +234,8 @@ class KprofilesPlugin : Plugin<Project> {
             extension = extension,
             profileSelectionProvider = profileSelectionProvider,
             overlaySpecsProvider = overlaySpecsProvider,
-            family = activeFamily,
-            buildType = activeBuildType,
+            familyProvider = activeFamilyProvider,
+            buildTypeProvider = activeBuildTypeProvider,
             sharedDir = sharedDirProvider,
             preparedDirProvider = preparedDirFromOverlay,
             overlayTask = overlayTask
@@ -241,8 +245,8 @@ class KprofilesPlugin : Plugin<Project> {
             project = project,
             extension = extension,
             profileSelectionProvider = profileSelectionProvider,
-            family = activeFamily,
-            buildType = activeBuildType
+            familyProvider = activeFamilyProvider,
+            buildTypeProvider = activeBuildTypeProvider
         )
 
         project.tasks.register("generateKprofiles") { task ->
@@ -343,8 +347,8 @@ class KprofilesPlugin : Plugin<Project> {
         project: Project,
         extension: KprofilesExtension,
         profileSelectionProvider: Provider<ProfileResolver.ProfileSelection>,
-        family: String,
-        buildType: String?
+        familyProvider: Provider<String>,
+        buildTypeProvider: Provider<String>
     ): TaskProvider<KprofilesGenerateConfigTask> {
         val targetSourceSet = extension.generatedConfig.sourceSet.orNull ?: COMMON_MAIN
         val cap =
@@ -360,8 +364,8 @@ class KprofilesPlugin : Plugin<Project> {
             val selection = profileSelectionProvider.get()
             computeConfigOverlaySpecs(
                 project = project,
-                family = family,
-                buildType = buildType,
+                family = familyProvider.get(),
+                buildType = buildTypeProvider.get().ifBlank { null },
                 profileSelection = selection
             )
         }
@@ -378,8 +382,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.group = "kprofiles"
             task.description = "Merge profile-aware configuration for $targetSourceSet."
             task.profileStack.set(profileSelectionProvider.map { it.profiles.joinToString(",") })
-            task.platformFamily.set(family)
-            task.buildType.set(buildType ?: "")
+            task.platformFamily.set(familyProvider)
+            task.buildType.set(buildTypeProvider)
             task.overlayLabels.set(configLabelsProvider)
             task.orderedInputPaths.set(orderedPathsProvider)
             task.inputFiles.setFrom(configFilesProvider)
@@ -388,8 +392,13 @@ class KprofilesPlugin : Plugin<Project> {
             task.projectDirectory.set(project.layout.projectDirectory)
         }
 
-        val stackDescriptionProvider = profileSelectionProvider.map { selection ->
-            buildStackComment(selection.profiles, family, buildType)
+        val stackDescriptionProvider = project.providers.provider {
+            val selection = profileSelectionProvider.get()
+            buildStackComment(
+                profiles = selection.profiles,
+                family = familyProvider.get(),
+                buildType = buildTypeProvider.get().ifBlank { null }
+            )
         }
 
         // Generate strongly-typed Kotlin config from the merged JSON snapshot.
@@ -429,8 +438,8 @@ class KprofilesPlugin : Plugin<Project> {
             task.profileSource.set(profileSelectionProvider.map { it.source.name })
             task.profileStack.set(profileSelectionProvider.map { it.profiles.joinToString(",") })
             task.overlayLabels.set(configLabelsProvider)
-            task.platformFamily.set(family)
-            task.buildType.set(buildType ?: "")
+            task.platformFamily.set(familyProvider)
+            task.buildType.set(buildTypeProvider)
             task.mergedConfigFile.set(mergeTask.flatMap { it.outputFile })
             task.onlyIf { enabledProvider.get() }
         }
@@ -491,8 +500,8 @@ class KprofilesPlugin : Plugin<Project> {
         extension: KprofilesExtension,
         profileSelectionProvider: Provider<ProfileResolver.ProfileSelection>,
         overlaySpecsProvider: Provider<List<OverlaySpec>>,
-        family: String,
-        buildType: String?,
+        familyProvider: Provider<String>,
+        buildTypeProvider: Provider<String>,
         sharedDir: Provider<Directory>,
         preparedDirProvider: Provider<Directory>,
         overlayTask: TaskProvider<KprofilesOverlayTask>
@@ -504,8 +513,8 @@ class KprofilesPlugin : Plugin<Project> {
             overlaySpecsProvider.map { specs -> specs.map { it.path.asFile } }
         val preparedDirPathsProvider = preparedDirProvider.map { listOf(it.asFile.absolutePath) }
 
-        val platformFamiliesProvider = project.providers.provider { listOf(family) }
-        val buildTypesProvider = project.providers.provider { listOf(buildType ?: "") }
+        val platformFamiliesProvider = familyProvider.map { listOf(it) }
+        val buildTypesProvider = buildTypeProvider.map { listOf(it) }
 
         project.tasks.register(
             "kprofilesPrintEffective",

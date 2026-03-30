@@ -6,11 +6,19 @@ pluginManagement {
         mavenCentral()
     }
     plugins {
-        id("org.jetbrains.kotlin.jvm") version "2.2.21"
-        id("org.jetbrains.compose") version "1.9.3"
-        id("com.android.application") version "8.13.1"
-        id("com.android.kotlin.multiplatform.library") version "8.13.1"
-        id("com.android.lint") version "8.13.1"
+        id("org.jetbrains.kotlin.jvm") version "2.3.20"
+        id("org.jetbrains.compose") version "1.10.3"
+        id("com.android.application") version "9.1.0"
+        id("com.android.kotlin.multiplatform.library") version "9.1.0"
+        id("com.android.lint") version "9.1.0"
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }
 

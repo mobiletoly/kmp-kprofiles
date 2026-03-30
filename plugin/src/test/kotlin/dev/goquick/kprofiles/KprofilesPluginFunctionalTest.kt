@@ -193,7 +193,7 @@ class KprofilesPluginFunctionalTest {
             import dev.goquick.kprofiles.CollisionPolicy
 
             plugins {
-                kotlin("multiplatform") version "2.2.21"
+                kotlin("multiplatform") version "2.3.20"
                 id("dev.goquick.kprofiles")
             }
 
