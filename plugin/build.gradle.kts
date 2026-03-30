@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.goquick.kprofiles"
-version = "0.1.5-SNAPSHOT"
+version = "0.1.5"
 
 dependencies {
     implementation(gradleApi())
